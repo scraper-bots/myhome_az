@@ -117,7 +117,21 @@ class MyHomeScraper:
             await asyncio.sleep(self.rate_limit_delay)
             async with self.session.get(url) as response:
                 if response.status == 200:
-                    phone_data = await response.text()
+                    try:
+                        phone_data = await response.text(encoding='utf-8')
+                    except UnicodeDecodeError:
+                        # Fallback: read raw bytes and try different encodings
+                        raw_data = await response.read()
+                        for encoding in ['utf-8', 'latin-1', 'cp1252']:
+                            try:
+                                phone_data = raw_data.decode(encoding)
+                                break
+                            except UnicodeDecodeError:
+                                continue
+                        else:
+                            logger.error(f"Could not decode phone response for listing {listing_id}")
+                            return ""
+
                     # Clean up phone number (remove whitespace, handle multiple numbers)
                     phones = phone_data.strip().split('\n')
                     return ', '.join([phone.strip() for phone in phones if phone.strip()])
