@@ -15,7 +15,7 @@ from pathlib import Path
 import pandas as pd
 from typing import List, Dict, Optional, Tuple
 import logging
-import zstd
+import zstandard as zstd
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ class MyHomeScraper:
             headers=self.headers,
             connector=connector,
             timeout=timeout,
-            auto_decompress=True  # Enable automatic decompression
+            auto_decompress=False  # Disable auto-decompression since we handle zstd manually
         )
         return self
 
@@ -67,21 +67,46 @@ class MyHomeScraper:
                 await asyncio.sleep(self.rate_limit_delay)
                 async with self.session.get(url) as response:
                     if response.status == 200:
-                        # Try to read as text first, then parse as JSON
-                        try:
-                            text = await response.text(encoding='utf-8')
-                            return json.loads(text)
-                        except UnicodeDecodeError:
-                            # Fallback: read raw bytes and try different encodings
-                            raw_data = await response.read()
-                            for encoding in ['utf-8', 'latin-1', 'cp1252']:
-                                try:
-                                    text = raw_data.decode(encoding)
-                                    return json.loads(text)
-                                except (UnicodeDecodeError, json.JSONDecodeError):
-                                    continue
-                            logger.error(f"Could not decode response from {url}")
-                            return None
+                        # Handle different compression types
+                        content_encoding = response.headers.get('content-encoding', '').lower()
+                        raw_data = await response.read()
+
+                        # Decompress if needed
+                        if content_encoding == 'zstd':
+                            try:
+                                decompressor = zstd.ZstdDecompressor()
+                                decompressed = decompressor.decompress(raw_data, max_output_size=100*1024*1024)  # 100MB max
+                                text = decompressed.decode('utf-8')
+                                return json.loads(text)
+                            except Exception as e:
+                                logger.error(f"Failed to decompress zstd data from {url}: {e}")
+                                return None
+                        elif content_encoding in ['gzip', 'deflate', 'br']:
+                            # aiohttp should handle these automatically, but try manual if needed
+                            try:
+                                text = await response.text()
+                                return json.loads(text)
+                            except Exception as e:
+                                logger.error(f"Failed to decode compressed data from {url}: {e}")
+                                return None
+                        else:
+                            # No compression or unknown compression
+                            try:
+                                text = raw_data.decode('utf-8')
+                                return json.loads(text)
+                            except UnicodeDecodeError:
+                                # Try different encodings
+                                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                                    try:
+                                        text = raw_data.decode(encoding)
+                                        return json.loads(text)
+                                    except (UnicodeDecodeError, json.JSONDecodeError):
+                                        continue
+                                logger.error(f"Could not decode response from {url}")
+                                return None
+                            except json.JSONDecodeError as e:
+                                logger.error(f"Invalid JSON from {url}: {e}")
+                                return None
                     elif response.status == 429:  # Rate limited
                         wait_time = (attempt + 1) * 2
                         logger.warning(f"Rate limited, waiting {wait_time}s before retry")
@@ -118,20 +143,32 @@ class MyHomeScraper:
             await asyncio.sleep(self.rate_limit_delay)
             async with self.session.get(url) as response:
                 if response.status == 200:
-                    try:
-                        phone_data = await response.text(encoding='utf-8')
-                    except UnicodeDecodeError:
-                        # Fallback: read raw bytes and try different encodings
-                        raw_data = await response.read()
-                        for encoding in ['utf-8', 'latin-1', 'cp1252']:
-                            try:
-                                phone_data = raw_data.decode(encoding)
-                                break
-                            except UnicodeDecodeError:
-                                continue
-                        else:
-                            logger.error(f"Could not decode phone response for listing {listing_id}")
+                    # Handle compression for phone responses too
+                    content_encoding = response.headers.get('content-encoding', '').lower()
+                    raw_data = await response.read()
+
+                    if content_encoding == 'zstd':
+                        try:
+                            decompressor = zstd.ZstdDecompressor()
+                            decompressed = decompressor.decompress(raw_data, max_output_size=10*1024*1024)  # 10MB max for phone
+                            phone_data = decompressed.decode('utf-8')
+                        except Exception as e:
+                            logger.error(f"Failed to decompress phone data for listing {listing_id}: {e}")
                             return ""
+                    else:
+                        try:
+                            phone_data = raw_data.decode('utf-8')
+                        except UnicodeDecodeError:
+                            # Try different encodings
+                            for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                                try:
+                                    phone_data = raw_data.decode(encoding)
+                                    break
+                                except UnicodeDecodeError:
+                                    continue
+                            else:
+                                logger.error(f"Could not decode phone response for listing {listing_id}")
+                                return ""
 
                     # Clean up phone number (remove whitespace, handle multiple numbers)
                     phones = phone_data.strip().split('\n')
