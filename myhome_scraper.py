@@ -43,7 +43,7 @@ class MyHomeScraper:
         }
         self.session = None
         self.all_listings = []
-        self.rate_limit_delay = 0.5  # 500ms delay between requests
+        self.rate_limit_delay = 1.0  # 1 second delay between requests
 
     async def __aenter__(self):
         connector = aiohttp.TCPConnector(limit=10, limit_per_host=5)
@@ -185,7 +185,7 @@ class MyHomeScraper:
         processed_listings = []
 
         # Create semaphore to limit concurrent phone requests
-        semaphore = asyncio.Semaphore(5)
+        semaphore = asyncio.Semaphore(2)  # Reduced to 2 concurrent requests
 
         async def process_single_listing(listing):
             async with semaphore:
