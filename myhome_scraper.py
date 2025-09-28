@@ -23,12 +23,32 @@ logger = logging.getLogger(__name__)
 class MyHomeScraper:
     def __init__(self):
         self.base_url = "https://api.myhome.az/api/announcement"
+
+        # Headers for listing requests
         self.headers = {
             'accept': 'application/json',
             'accept-encoding': 'gzip, deflate, br, zstd',
             'accept-language': 'en-GB,en-US;q=0.9,en;q=0.8,ru;q=0.7,az;q=0.6',
             'access-control-allow-origin': '*',
             'authorization': 'Bearer undefined',
+            'dnt': '1',
+            'origin': 'https://myhome.az',
+            'priority': 'u=1, i',
+            'referer': 'https://myhome.az/',
+            'sec-ch-ua': '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"macOS"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-site',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+        }
+
+        # Specific headers for phone requests (based on your original headers)
+        self.phone_headers = {
+            'accept': '*/*',  # Key difference!
+            'accept-encoding': 'gzip, deflate, br, zstd',
+            'accept-language': 'en-GB,en-US;q=0.9,en;q=0.8,ru;q=0.7,az;q=0.6',
             'dnt': '1',
             'origin': 'https://myhome.az',
             'priority': 'u=1, i',
@@ -141,7 +161,8 @@ class MyHomeScraper:
         url = f"{self.base_url}/phone/{listing_id}"
         try:
             await asyncio.sleep(self.rate_limit_delay)
-            async with self.session.get(url) as response:
+            # Use specific headers for phone requests
+            async with self.session.get(url, headers=self.phone_headers) as response:
                 if response.status == 200:
                     # Handle compression for phone responses too
                     content_encoding = response.headers.get('content-encoding', '').lower()
