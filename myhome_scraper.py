@@ -15,6 +15,7 @@ from pathlib import Path
 import pandas as pd
 from typing import List, Dict, Optional, Tuple
 import logging
+import zstd
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
